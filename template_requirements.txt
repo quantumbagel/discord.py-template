@@ -1,0 +1,3 @@
+discord.py
+certifi
+pip-system-certs
