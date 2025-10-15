@@ -4,7 +4,7 @@ import sys
 import os
 
 logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger("requirements")
+logger = logging.getLogger("template.requirements")
 
 def run_command(command: list) -> bool:
     """
