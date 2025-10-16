@@ -1,7 +1,7 @@
 import logging
 
 
-class Formatter(logging.Formatter):
+class ConsoleFormatter(logging.Formatter):
     """
     This class represents a simple logging formatter (credit goes to this StackOverflow question:
     https://stackoverflow.com/questions/384076/how-can-i-color-python-logging-output
@@ -25,4 +25,16 @@ class Formatter(logging.Formatter):
     def format(self, record):
         log_fmt = self.FORMATS.get(record.levelno)
         formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
+
+class FileFormatter(logging.Formatter):
+    """
+    This class represents a simple logging formatter (credit goes to this StackOverflow question:
+    https://stackoverflow.com/questions/384076/how-can-i-color-python-logging-output
+    Thanks :D
+    """
+    fmt = "%(asctime)s - %(name)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
+
+    def format(self, record):
+        formatter = logging.Formatter(self.fmt)
         return formatter.format(record)

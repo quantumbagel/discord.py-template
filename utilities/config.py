@@ -83,7 +83,7 @@ def get_config() -> Box:
             # Convert the dictionary to a Box object
             # frozen_box=True makes the object immutable (read-only)
             # which is good practice for configs.
-            config_box = Box(config_dict, frozen_box=True)
+            config_box = Box(config_dict, frozen_box=True, default_box=True, default_box_attr=None)
             logger.info("Configuration file loaded successfully.")
             return config_box
     except FileNotFoundError:

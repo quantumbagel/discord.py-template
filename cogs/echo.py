@@ -2,11 +2,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from cogs.base import BagelCog, CogTemplate
+from cogs.base import ImprovedCog, CogTemplate
 
 
-# All cogs are classes that inherit from bagelcog
-class Echo(BagelCog):
+# All cogs are classes that inherit from ImprovedCog
+class Echo(ImprovedCog):
     template = CogTemplate(description="Echo", authors=["quantumbagel"], version="1.0.0", name="echo")
     @commands.Cog.listener()
     async def on_ready(self):

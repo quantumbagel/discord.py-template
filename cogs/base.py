@@ -19,7 +19,7 @@ class CogTemplate:
     emoji: str = "⚙️"  # An emoji to represent the cog
     enabled: bool = True # A flag to easily disable the cog's commands or loading
 
-class BagelCog(commands.Cog):
+class ImprovedCog(commands.Cog):
     """
     A modified Cog class that requires a 'template' attribute to be set.
 
