@@ -3,6 +3,7 @@ import datetime
 import importlib
 import logging
 import sys
+import traceback
 from pathlib import Path
 
 import discord
@@ -14,6 +15,7 @@ from discord.ext.commands import CommandError
 from cogs.base import ImprovedCog
 from utilities import ensure_requirements
 from utilities.config import get_config
+from utilities.exception_manager import create_detailed_error_log
 from utilities.formatter import ConsoleFormatter, FileFormatter
 
 configuration = get_config()
@@ -112,7 +114,7 @@ class BotTemplate(commands.Bot):
             cog_classname = cog_data["class"]
             enabled = cog_data.get("enabled", True)
             if not enabled:
-                self._logger.warning(f"Skipping cog '{cog_module}.{cog_classname}' because it is disabled.")
+                self._logger.warning(f"Skipping cog '{cog_module}.{cog_classname}' because it is disabled in config.")
             try:
                 module = importlib.import_module(cog_module)
             except ImportError:
@@ -127,9 +129,6 @@ class BotTemplate(commands.Bot):
                 continue
             try:
                 await self.add_cog(cog_class(self, cog_logger))
-            except TypeError:
-                self._logger.warning(f"Failed to load cog '{cog_module}.{cog_classname}': "
-                                     f"The cog does not inherit from class Cog")
             except CommandError:
                 self._logger.warning(f"Failed to load cog '{cog_module}.{cog_classname}': "
                                      f"There was an error while adding the Cog!", exc_info=True)
@@ -172,19 +171,49 @@ class BotTemplate(commands.Bot):
         # Check if the error is a CheckFailure
         if isinstance(error, commands.CheckFailure):
             # Log the failed check attempt
-            log.warning(f"User '{ctx.author}' ({ctx.author.id}) failed check for command '{ctx.command}'.")
+            log.warning(f"User '{ctx.author}' ({ctx.author.id}) failed permissions check for command '{ctx.command}'.")
 
-            # Optionally, send a silent message to the user
+            # send a silent message to the user
+            # TODO: use embeds or provide a constants file to set this functionality for whatever the application
             await ctx.send("You do not have the required permissions to run this command.", ephemeral=True,
                            delete_after=10)
 
             # The error is handled, so we can just return
             return
+        elif isinstance(error, commands.CommandNotFound):
+            log.warning(f"User '{ctx.author}' ({ctx.author.id}) requested a command that we don't have. "
+                        f"We won't do anything because this could be implemented by another bot. More information: {error}")
+            return
+        elif isinstance(error, commands.CommandInvokeError):
+
+            log.error(f"The command {ctx.command} crashed while executing. We are now logging the information.")
+
+            # Get the original exception
+            original_error = error.original
+
+            # Extract the exception details
+            exc_type = type(original_error)
+            exc_value = original_error
+            tb = original_error.__traceback__
+
+            # Call your logging function
+            if configuration.logging.output_folder:
+                error_saved_to = create_detailed_error_log(configuration.logging.output_folder, ctx.command.name, exc_type, exc_value, tb)
+                log.info(f"Traceback saved to {error_saved_to!r}")
+            else:
+                log.warning("Nothing was saved because logging to file was not enabled."
+                            " Logging the traceback to console instead.")
+                traceback.print_exception(exc=error)
+            return
+
+
+
 
         # For other errors, we can fall back to the default behavior
         # This will print tracebacks for unexpected errors to the console
         log.error(f"An unhandled error occurred in command '{ctx.command}': {error}")
         await super().on_command_error(ctx, error)
+
 
 
 # 5. Main execution block

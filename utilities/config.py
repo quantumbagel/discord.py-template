@@ -72,7 +72,6 @@ def get_config() -> Box:
     """
     logger = logging.getLogger("template.configuration")
     file_path = 'configuration/config.yaml'
-    logger.info(f"Loading configuration file '{file_path}'...")
     yaml = YAML(typ='safe')  # typ='safe' is the default and recommended
     try:
         with open(file_path, 'r') as file:
@@ -81,7 +80,6 @@ def get_config() -> Box:
             # frozen_box=True makes the object immutable (read-only)
             # which is good practice for configs.
             config_box = Box(config_dict, frozen_box=True, default_box=True, default_box_attr=None)
-            logger.info("Configuration file loaded successfully.")
             return config_box
     except FileNotFoundError:
         logger.critical(f"Error: The config file at '{file_path}' was not found.")

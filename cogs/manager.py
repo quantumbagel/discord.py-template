@@ -12,8 +12,8 @@ class Management(ImprovedCog):
 
     async def cog_load(self):
         all_cogs = self.bot.configuration.cogs
-        for cog_info in all_cogs:
-            cog_data = cog_info.get()
+        # for cog_info in all_cogs:
+        #     cog_data = cog_info.get()
         self.logger.info(f"Management cog is now loaded.")
 
     # This check ensures that only the bot owner can use these commands.
@@ -23,6 +23,7 @@ class Management(ImprovedCog):
     @commands.group(name="management", description="Commands for managing the bot.", aliases=["m"])
     async def management(self, ctx: commands.Context):
         """Commands for managing the bot."""
+        raise TypeError("this is a bug that happens randomly for no reason")
         if ctx.invoked_subcommand is None:
             await ctx.send("Invalid management command.")
 

@@ -1,11 +1,7 @@
 import dataclasses
 import logging
 from typing import List
-
 from discord.ext import commands
-
-from bot import BotTemplate
-
 
 @dataclasses.dataclass
 class CogTemplate:
