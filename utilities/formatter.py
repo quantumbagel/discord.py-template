@@ -27,6 +27,7 @@ class ConsoleFormatter(logging.Formatter):
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
 
+
 class FileFormatter(logging.Formatter):
     """
     This class represents a simple logging formatter (credit goes to this StackOverflow question:

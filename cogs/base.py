@@ -1,12 +1,11 @@
+import dataclasses
 import logging
+from typing import List
 
 from discord.ext import commands
 
-# Assume CogTemplate is defined in the same file or imported
-# from .template import CogTemplate
+from bot import BotTemplate
 
-import dataclasses
-from typing import List
 
 @dataclasses.dataclass
 class CogTemplate:
@@ -15,9 +14,10 @@ class CogTemplate:
     description: str = "No description provided."  # A brief description of the cog's purpose
     category: str = "Miscellaneous"  # Category for help commands (e.g., "Moderation", "Fun")
     version: str = "1.0.0"  # The cog's version
-    authors: List[str] = dataclasses.field(default_factory=list) # List of authors
+    authors: List[str] = dataclasses.field(default_factory=list)  # List of authors
     emoji: str = "⚙️"  # An emoji to represent the cog
-    enabled: bool = True # A flag to easily disable the cog's commands or loading
+    enabled: bool = True  # A flag to easily disable the cog's commands or loading
+
 
 class ImprovedCog(commands.Cog):
     """
@@ -29,7 +29,7 @@ class ImprovedCog(commands.Cog):
     # Type hint to show developers what is expected
     template: CogTemplate = None
 
-    def __init__(self, bot: commands.Bot, logger: logging.Logger = None):
+    def __init__(self, bot: 'BotTemplate', logger: logging.Logger = None):
         self.bot = bot
         self.logger = logger
 

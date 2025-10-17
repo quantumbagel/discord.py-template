@@ -1,10 +1,11 @@
 import logging
+import os
 import subprocess
 import sys
-import os
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("template.requirements")
+
 
 def run_command(command: list) -> bool:
     """

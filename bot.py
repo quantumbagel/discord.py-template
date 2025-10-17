@@ -1,20 +1,20 @@
+import asyncio
 import datetime
-import os
+import importlib
+import logging
+import sys
 from pathlib import Path
 
 import discord
+from box import box
 from discord import ClientException
 from discord.ext import commands
 from discord.ext.commands import CommandError
 
 from cogs.base import ImprovedCog
 from utilities import ensure_requirements
-import asyncio
-import importlib
-import logging
-import sys
-from utilities.formatter import ConsoleFormatter, FileFormatter
 from utilities.config import get_config
+from utilities.formatter import ConsoleFormatter, FileFormatter
 
 configuration = get_config()
 
@@ -23,8 +23,6 @@ logging_level_conversion = {"critical": logging.CRITICAL,
                             "warning": logging.WARNING,
                             "info": logging.INFO,
                             "debug": logging.DEBUG}
-
-
 
 console_level = configuration.logging.console_level.lower()
 output_level = configuration.logging.output_level.lower()
@@ -45,11 +43,9 @@ elif console_logging_level is None and output_logging_level is None:
     console_logging_level = logging.INFO
     output_logging_level = logging.INFO
 
-
-
 initialization_runtime = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-logging.getLogger("discord").setLevel(min(console_logging_level, logging.INFO))  # Discord.py logging level - INFO (don't want DEBUG)
-
+logging.getLogger("discord").setLevel(
+    min(console_logging_level, logging.INFO))  # Discord.py logging level - INFO (don't want DEBUG)
 
 # Configure root logger
 root_logger = logging.getLogger("root")
@@ -84,12 +80,13 @@ ensure_requirements.ensure_requirements()  # install dependencies
 
 class BotTemplate(commands.Bot):
     _logger: logging.Logger = None
-    def __init__(self, configuration):
+
+    def __init__(self, config):
         # All intents because cool
         intents = discord.Intents.all()
         self._logger = logging.getLogger("template.bot")
         self._has_logged_in = False
-        self.configuration = configuration
+        self.configuration: box.Box = config
 
         self._logger.info("Setting initial presence...")
         activity_type = discord.ActivityType.playing
@@ -125,7 +122,8 @@ class BotTemplate(commands.Bot):
             cog_logger = self._logger.getChild(f"cogs[{cog_module}]")
             cog_class = getattr(module, cog_classname)
             if not issubclass(cog_class, ImprovedCog):
-                self._logger.warning(f"Cog '{cog_module}.{cog_classname}' is not a subclass of ImprovedCog and as such cannot be loaded.")
+                self._logger.warning(
+                    f"Cog '{cog_module}.{cog_classname}' is not a subclass of ImprovedCog and as such cannot be loaded.")
                 continue
             try:
                 await self.add_cog(cog_class(self, cog_logger))
@@ -138,9 +136,6 @@ class BotTemplate(commands.Bot):
             except ClientException:
                 self._logger.warning(f"Failed to load cog '{cog_module}.{cog_classname}': "
                                      f"A cog with this name is already loaded!")
-
-
-
 
     async def on_ready(self):
         """Event that fires when the bot is fully logged in and ready."""
@@ -156,10 +151,10 @@ class BotTemplate(commands.Bot):
             # depending on the number of owners from the application portal
             await self.is_owner(discord.Object(id=1234))
 
-
         def stringify_user(user_id):
             user = self.get_user(user_id)
             return f"@{user.name} ({user.id})"
+
         manually_set = "manually" if manually_set else "automatically"
         if self.owner_id:
             self._logger.info(f"This bot is owned by ({manually_set} set): {stringify_user(self.owner_id)}")

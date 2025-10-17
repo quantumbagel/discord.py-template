@@ -1,12 +1,12 @@
 import dataclasses
-import re
-from typing import Dict, Optional, Union, Iterator, Tuple
-from discord.ext import commands
-import discord
-from ruamel.yaml import YAML
 import logging
-from box import Box
+import re
+from typing import Dict, Iterator, Optional, Tuple, Union
 
+import discord
+from box import Box
+from discord.ext import commands
+from ruamel.yaml import YAML
 
 
 @dataclasses.dataclass
@@ -55,9 +55,6 @@ class EmojiMap:
 
     def __contains__(self, alias: str) -> bool:
         return alias.lower() in self._aliases
-
-
-
 
 
 def get_config() -> Box:

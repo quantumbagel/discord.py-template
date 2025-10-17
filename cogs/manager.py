@@ -1,13 +1,7 @@
-import importlib
-import pathlib
-import inspect
-import discord
 from discord.ext import commands
-from typing import Literal, Optional
-import math
 
-# Assuming these are defined in your project structure
-from cogs.base import ImprovedCog, CogTemplate
+from cogs.base import CogTemplate, ImprovedCog
+
 
 class Management(ImprovedCog):
     """
@@ -15,6 +9,12 @@ class Management(ImprovedCog):
     """
     all_cogs = []
     template = CogTemplate(description="Management", authors=["quantumbagel"], version="1.0.0", name="management")
+
+    async def cog_load(self):
+        all_cogs = self.bot.configuration.cogs
+        for cog_info in all_cogs:
+            cog_data = cog_info.get()
+        self.logger.info(f"Management cog is now loaded.")
 
     # This check ensures that only the bot owner can use these commands.
     async def cog_check(self, ctx: commands.Context) -> bool:
