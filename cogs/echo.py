@@ -13,6 +13,7 @@ class Echo(ImprovedCog):
     async def on_ready(self):
         self.logger.info("Echo Cog has been loaded successfully.")
 
+
     @app_commands.command(name="echo", description="Makes the bot say something.")
     @app_commands.describe(message="The message you want the bot to repeat.")
     @app_commands.default_permissions(manage_messages=True)  # Permission check

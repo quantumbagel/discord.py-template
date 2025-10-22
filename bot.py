@@ -8,7 +8,7 @@ from pathlib import Path
 
 import discord
 from box import box
-from discord import ClientException
+from discord import ClientException, app_commands
 from discord.ext import commands
 from discord.ext.commands import CommandError
 
@@ -89,15 +89,13 @@ class BotTemplate(commands.Bot):
         self._logger = logging.getLogger("template.bot")
         self._has_logged_in = False
         self.configuration: box.Box = config
-
-        self._logger.info("Setting initial presence...")
-        activity_type = discord.ActivityType.playing
-        activity = discord.Activity(type=activity_type, name="Bot is starting...")
         super().__init__(
             command_prefix="!",
             intents=intents,
             owner_ids=set(),
-            activity=activity
+            activity=None,
+            status=None,
+            help_command=None  # Don't want hidden commands showing up
         )
 
     async def setup_hook(self):
@@ -164,8 +162,6 @@ class BotTemplate(commands.Bot):
             self._logger.error("This bot has no owner. This should not happen and will break all owner-only commands.")
 
         self._logger.info("Bot is ready and online!")
-        await self.change_presence()
-        self._logger.debug("Removed startup presence before cogs load.")
 
     async def on_command_error(self, ctx, error):
         # Check if the error is a CheckFailure
@@ -180,9 +176,10 @@ class BotTemplate(commands.Bot):
 
             # The error is handled, so we can just return
             return
-        elif isinstance(error, commands.CommandNotFound):
-            log.warning(f"User '{ctx.author}' ({ctx.author.id}) requested a command that we don't have. "
-                        f"We won't do anything because this could be implemented by another bot. More information: {error}")
+        elif isinstance(error, commands.CommandNotFound) or isinstance(error, app_commands.errors.CommandNotFound):
+            log.warning(f"User '{ctx.author}' ({ctx.author.id}) requested a command that we don't have."
+                        f" We won't do anything because this could be a valid command implemented by another bot."
+                        f" More information: {error}")
             return
         elif isinstance(error, commands.CommandInvokeError):
 
