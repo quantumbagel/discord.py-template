@@ -13,10 +13,13 @@ from discord.ext import commands
 from discord.ext.commands import CommandError
 
 from cogs.base import ImprovedCog
-from utilities import ensure_requirements
+# REFACTOR: Import helpers for sending messages
+from utilities import ensure_requirements, helpers
 from utilities.config import get_config
 from utilities.exception_manager import create_detailed_error_log
 from utilities.formatter import ConsoleFormatter, FileFormatter
+# REFACTOR: Import embed templates for error handling
+from utilities.embeds import error_embed, warning_embed
 
 configuration = get_config()
 
@@ -26,24 +29,19 @@ logging_level_conversion = {"critical": logging.CRITICAL,
                             "info": logging.INFO,
                             "debug": logging.DEBUG}
 
-console_level = configuration.logging.console_level.lower()
-output_level = configuration.logging.output_level.lower()
-console_logging_level = None
-output_logging_level = None
+# REFACTOR: Simplified logging level logic
+console_level_str = configuration.logging.console_level.lower()
+output_level_str = configuration.logging.output_level.lower()
 
-if console_level in logging_level_conversion.keys():
-    console_logging_level = logging_level_conversion[console_level]
+# Get the logging level, default to INFO if invalid
+console_logging_level = logging_level_conversion.get(console_level_str, logging.INFO)
+output_logging_level = logging_level_conversion.get(output_level_str, logging.INFO)
 
-if output_level in logging_level_conversion.keys():
-    output_logging_level = logging_level_conversion[output_level]
-
-if console_logging_level is None and output_logging_level is not None:
+# If one is not set (i.e., invalid in config), default it to the other's valid level.
+if console_level_str not in logging_level_conversion:
     console_logging_level = output_logging_level
-elif output_logging_level is None and console_logging_level is not None:
+if output_level_str not in logging_level_conversion:
     output_logging_level = console_logging_level
-elif console_logging_level is None and output_logging_level is None:
-    console_logging_level = logging.INFO
-    output_logging_level = logging.INFO
 
 initialization_runtime = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 logging.getLogger("discord").setLevel(
@@ -113,6 +111,7 @@ class BotTemplate(commands.Bot):
             enabled = cog_data.get("enabled", True)
             if not enabled:
                 self._logger.warning(f"Skipping cog '{cog_module}.{cog_classname}' because it is disabled in config.")
+                continue  # REFACTOR: Added continue to ensure disabled cogs are not processed
             try:
                 module = importlib.import_module(cog_module)
             except ImportError:
@@ -150,7 +149,9 @@ class BotTemplate(commands.Bot):
 
         def stringify_user(user_id):
             user = self.get_user(user_id)
-            return f"@{user.name} ({user.id})"
+            if user:  # Add check in case user is not cached
+                return f"@{user.name} ({user.id})"
+            return f"Unknown User ({user_id})"
 
         manually_set = "manually" if manually_set else "automatically"
         if self.owner_id:
@@ -164,53 +165,106 @@ class BotTemplate(commands.Bot):
         self._logger.info("Bot is ready and online!")
 
     async def on_command_error(self, ctx, error):
+        # REFACTOR: Use helpers.send and embeds for all user-facing errors.
+
         # Check if the error is a CheckFailure
         if isinstance(error, commands.CheckFailure):
             # Log the failed check attempt
             log.warning(f"User '{ctx.author}' ({ctx.author.id}) failed permissions check for command '{ctx.command}'.")
 
-            # send a silent message to the user
-            # TODO: use embeds or provide a constants file to set this functionality for whatever the application
-            await ctx.send("You do not have the required permissions to run this command.", ephemeral=True,
-                           delete_after=10)
-
-            # The error is handled, so we can just return
+            # Send a silent, embedded message to the user
+            await helpers.send(
+                ctx,
+                embed=error_embed(
+                    "Permission Denied",
+                    "You do not have the required permissions to run this command."
+                ),
+                ephemeral=True,
+                delete_after=10
+            )
             return
+
         elif isinstance(error, commands.CommandNotFound) or isinstance(error, app_commands.errors.CommandNotFound):
             log.warning(f"User '{ctx.author}' ({ctx.author.id}) requested a command that we don't have."
                         f" We won't do anything because this could be a valid command implemented by another bot."
                         f" More information: {error}")
             return
-        elif isinstance(error, commands.CommandInvokeError):
 
+        elif isinstance(error, commands.CommandInvokeError):
             log.error(f"The command {ctx.command} crashed while executing. We are now logging the information.")
 
             # Get the original exception
             original_error = error.original
-
-            # Extract the exception details
             exc_type = type(original_error)
             exc_value = original_error
             tb = original_error.__traceback__
 
             # Call your logging function
             if configuration.logging.output_folder:
-                error_saved_to = create_detailed_error_log(configuration.logging.output_folder, ctx.command.name, exc_type, exc_value, tb)
+                error_saved_to = create_detailed_error_log(
+                    configuration.logging.output_folder, ctx.command.name, exc_type, exc_value, tb
+                )
                 log.info(f"Traceback saved to {error_saved_to!r}")
+                # REFACTOR: Inform user about the error and log file
+                await helpers.send(
+                    ctx,
+                    embed=error_embed(
+                        "Command Error",
+                        f"An unexpected error occurred. The details have been logged.\n"
+                        f"**Log File:** `{error_saved_to}`"
+                    ),
+                    ephemeral=True
+                )
             else:
                 log.warning("Nothing was saved because logging to file was not enabled."
                             " Logging the traceback to console instead.")
                 traceback.print_exception(exc=error)
+                # REFACTOR: Inform user about the error
+                await helpers.send(
+                    ctx,
+                    embed=error_embed(
+                        "Command Error",
+                        "An unexpected error occurred. Please contact the bot owner."
+                    ),
+                    ephemeral=True
+                )
             return
 
-
-
+        elif isinstance(error, commands.MissingRequiredArgument):
+            if ctx.command.qualified_name == "management eval":
+                # A little workaround 😈
+                return
+            log.warning(f"User '{ctx.author}' ({ctx.author.id}) failed to provide required argument for command '{ctx.command.qualified_name}'.")
+            # REFACTOR: Use a WarningEmbed for user input errors
+            await helpers.send(
+                ctx,
+                embed=warning_embed(
+                    "Missing Argument",
+                    f"You are missing a required argument: `{error.param.name}`"
+                ),
+                ephemeral=True,
+                delete_after=10
+            )
+            return
 
         # For other errors, we can fall back to the default behavior
-        # This will print tracebacks for unexpected errors to the console
         log.error(f"An unhandled error occurred in command '{ctx.command}': {error}")
-        await super().on_command_error(ctx, error)
 
+        # REFACTOR: Send a generic error for unhandled cases
+        try:
+            await helpers.send(
+                ctx,
+                embed=error_embed(
+                    "Unhandled Error",
+                    "An unknown error occurred. Please contact the bot owner."
+                ),
+                ephemeral=True
+            )
+        except Exception as e:
+            log.error(f"Failed to send unhandled error message to user: {e}")
+
+        # This will print tracebacks for unexpected errors to the console
+        await super().on_command_error(ctx, error)
 
 
 # 5. Main execution block
