@@ -7,7 +7,7 @@ import traceback
 from pathlib import Path
 
 import discord
-from box import box
+from box import Box, BoxList, box
 from discord import ClientException, app_commands
 from discord.ext import commands
 from discord.ext.commands import CommandError
@@ -30,8 +30,17 @@ logging_level_conversion = {"critical": logging.CRITICAL,
                             "debug": logging.DEBUG}
 
 # REFACTOR: Simplified logging level logic
-console_level_str = configuration.logging.console_level.lower()
-output_level_str = configuration.logging.output_level.lower()
+
+is_there_logging_config = configuration.logging is not None
+if is_there_logging_config:
+
+    console_level_str = configuration.logging.console_level.lower()
+    output_level_str = configuration.logging.output_level.lower()
+else:
+    console_level_str = None
+    output_level_str = None
+
+
 
 # Get the logging level, default to INFO if invalid
 console_logging_level = logging_level_conversion.get(console_level_str, logging.INFO)
@@ -57,7 +66,7 @@ ch.setLevel(logging.DEBUG)
 ch.setFormatter(ConsoleFormatter())  # custom formatter
 root_logger.handlers = [ch]  # Make sure to not double print
 
-if configuration.logging.output_folder:
+if is_there_logging_config and configuration.logging.output_folder:
     log_file_path = f"{configuration.logging.output_folder}/run_{initialization_runtime}.log"
     root_logger.info(f"logging prep: this session will be saved to {log_file_path!r}")
     log_file = Path(log_file_path)
@@ -102,6 +111,52 @@ class BotTemplate(commands.Bot):
         It's the perfect place to load your cogs.
         """
         self._logger.info("Now loading cogs")
+
+        if configuration.cogs is None:
+            self._logger.warning("No cogs found in config."
+                                 "Unless you have drastically modified other components of this code, "
+                                 "your bot will not do anything.")
+            return
+
+        cogs_list = configuration.cogs
+
+        # Check if 'cogs' is a list (BoxList)
+        if not isinstance(cogs_list, BoxList):
+            self._logger.error(f"Cog validation error: 'cogs' must be a list. Found: {type(cogs_list)}")
+            return
+
+        for i, item in enumerate(cogs_list):
+            #  Check if item is a dictionary (Box)
+            if not isinstance(item, Box):
+                self._logger.error(f"Cog validation error: Item {i} in 'cogs' is not a dictionary. Found: {type(item)}")
+                return
+
+            # Check if item has exactly one key
+            if len(item) != 1:
+                self._logger.error(f"Cog validation error: Item {i} in 'cogs' must have exactly one key. Found: {list(item.keys())}")
+                return
+
+            # Get the inner config
+            cog_name = list(item.keys())[0]
+            cog_config = item[cog_name]
+
+            if not isinstance(cog_config, Box):
+                self._logger.error(
+                    f"Cog validation error: Config for '{cog_name}' (item {i}) is not a dictionary. Found: {type(cog_config)}")
+                return
+
+            # Check for 'class' key and its type
+            if 'class' not in cog_config or not isinstance(cog_config['class'], str):
+                self._logger.error(
+                    f"Cog validation error: Config for '{cog_name}' (item {i}) must have a 'class' key with a string value.")
+                return
+
+            #  Check for 'enabled' key and its type
+            if 'enabled' not in cog_config or not isinstance(cog_config.enabled, bool):
+                self._logger.error(
+                    f"Cog validation error: Config for '{cog_name}' (item {i}) must have an 'enabled' key with a boolean value.")
+                return
+
 
         for cog_info in configuration.cogs:
             cog_info = dict(cog_info)
@@ -185,7 +240,7 @@ class BotTemplate(commands.Bot):
             return
 
         elif isinstance(error, commands.CommandNotFound) or isinstance(error, app_commands.errors.CommandNotFound):
-            log.warning(f"User '{ctx.author}' ({ctx.author.id}) requested a command that we don't have."
+            log.warning(f"User '{ctx.author}' ({ctx.author.id}) requested a message command that we don't have."
                         f" We won't do anything because this could be a valid command implemented by another bot."
                         f" More information: {error}")
             return

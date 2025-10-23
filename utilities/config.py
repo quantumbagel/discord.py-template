@@ -79,10 +79,14 @@ def get_config() -> Box:
             # Convert the dictionary to a Box object
             # frozen_box=True makes the object immutable (read-only)
             # which is good practice for configs.
+            if not config_dict:
+                logger.critical(f"Error: The config file at '{file_path}' is empty. I don't know WHY you did that, "
+                                f"but you did I guess.")
+                raise ValueError("Config file is empty.")
             config_box = Box(config_dict, frozen_box=True, default_box=True, default_box_attr=None)
             return config_box
     except FileNotFoundError:
-        logger.critical(f"Error: The config file at '{file_path}' was not found.")
+        logger.critical(f"Error: The config file at '{file_path}' was not found. You need to create one.")
         raise
     except Exception as e:
         logger.critical(f"Error parsing or converting YAML file: {e}")
