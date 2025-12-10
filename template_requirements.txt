@@ -4,3 +4,6 @@ pip-system-certs
 ruamel.yaml
 PyNaCl
 python-box
+pydantic
+tortoise-orm
+aiosqlite

@@ -1,0 +1,10 @@
+services:
+  discord-bot:
+    build: .
+    container_name: dpy-template-bot  # Feel free to change this
+    restart: unless-stopped
+    volumes:
+      # Mount the configuration folder so you can edit config.yaml on the host
+      - ./configuration:/app/configuration
+      # Mount the logs folder to persist logs
+      - ./logs:/app/logs

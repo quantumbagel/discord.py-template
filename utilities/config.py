@@ -1,12 +1,88 @@
 import dataclasses
 import logging
 import re
-from typing import Dict, Iterator, Optional, Tuple, Union
+from typing import Dict, Iterator, Optional, Tuple, Union, List, Literal
 
 import discord
 from box import Box
 from discord.ext import commands
+from pydantic import BaseModel, Field, ValidationError
 from ruamel.yaml import YAML
+
+
+# --- Configuration Models ---
+
+class BotConfig(BaseModel):
+    """Defines the 'bot' section of the config."""
+    short_name: str
+    full_name: str
+    prefix: str
+    # Supports a list of IDs, Nones, or a mix.
+    owner_ids: List[Optional[int]]
+    testing_guild: Optional[int] = None
+
+
+class LoggingConfig(BaseModel):
+    """Defines the 'logging' section."""
+    console_level: Literal["debug", "info", "warning", "error", "critical"]
+    output_level: Literal["debug", "info", "warning", "error", "critical"]
+    output_folder: str
+
+
+class DatabaseConfig(BaseModel):
+    """Defines the 'database' section."""
+    url: str
+
+
+class EmbedColors(BaseModel):
+    """Defines the 'embed_colors' sub-section."""
+    default: int
+    success: int
+    error: int
+    warning: int
+    info: int
+
+
+class Emojis(BaseModel):
+    """Defines the 'emojis' sub-section."""
+    loading: str
+    success: str
+    error: str
+    info: str
+
+
+class StyleConfig(BaseModel):
+    """Defines the 'style' section."""
+    embed_colors: EmbedColors
+    emojis: Emojis
+
+
+class LinksConfig(BaseModel):
+    """Defines the 'links' section."""
+    invite_url: Optional[str] = None
+    support_server: Optional[str] = None
+    github_repo: Optional[str] = None
+
+
+class CogDetails(BaseModel):
+    """Defines the structure for a single cog entry."""
+    # We use 'alias' because 'class' is a reserved keyword in Python
+    class_name: str = Field(..., alias="class")
+    enabled: bool
+
+
+class Config(BaseModel):
+    """
+    The main Pydantic model for validating the entire config.yml file.
+    """
+    bot: BotConfig
+    auth: str
+    logging: LoggingConfig
+    database: DatabaseConfig
+    style: StyleConfig
+    links: LinksConfig
+    # A list where each item is a dictionary, e.g., {"cogs.echo": {...}}
+    cogs: List[Dict[str, CogDetails]]
 
 
 @dataclasses.dataclass
@@ -59,35 +135,44 @@ class EmojiMap:
 
 def get_config() -> Box:
     """
-    Loads a YAML configuration file and returns it as a Box object,
-    allowing attribute-style access (e.g., config.database.host).
-
+    Loads a YAML configuration file, validates it using Pydantic, and returns it as a Box object.
 
     Returns:
         Box: The configuration as a dot-accessible object.
 
     Raises:
         FileNotFoundError: If the file is not found.
-        yaml.YAMLError: If the file is not a valid YAML.
+        ValidationError: If the config does not match the schema.
     """
     logger = logging.getLogger("template.configuration")
     file_path = 'configuration/config.yaml'
-    yaml = YAML(typ='safe')  # typ='safe' is the default and recommended
+    yaml = YAML(typ='safe')
+    
     try:
-        with open(file_path, 'r') as file:
-            config_dict = yaml.load(file)
-            # Convert the dictionary to a Box object
-            # frozen_box=True makes the object immutable (read-only)
-            # which is good practice for configs.
-            if not config_dict:
-                logger.critical(f"Error: The config file at '{file_path}' is empty. I don't know WHY you did that, "
-                                f"but you did I guess.")
-                raise ValueError("Config file is empty.")
-            config_box = Box(config_dict, frozen_box=True, default_box=True, default_box_attr=None)
-            return config_box
+        with open(file_path, 'r', encoding="utf-8") as file:
+            raw_config = yaml.load(file)
+            
+        if not raw_config:
+            logger.critical(f"Error: The config file at '{file_path}' is empty.")
+            raise ValueError("Config file is empty.")
+
+        # Validate with Pydantic
+        try:
+            validated_config = Config(**raw_config)
+        except ValidationError as e:
+            logger.critical(f"❌ ERROR: Config validation failed:\n{e}")
+            raise
+
+        # Convert back to dict (using aliases to keep 'class' key) and then to Box
+        # This ensures the rest of the bot continues to work with Box features
+        config_dict = validated_config.model_dump(by_alias=True)
+        config_box = Box(config_dict, frozen_box=True, default_box=True, default_box_attr=None)
+        
+        return config_box
+
     except FileNotFoundError:
-        logger.critical(f"Error: The config file at '{file_path}' was not found. You need to create one.")
+        logger.critical(f"Error: The config file at '{file_path}' was not found.")
         raise
     except Exception as e:
-        logger.critical(f"Error parsing or converting YAML file: {e}")
+        logger.critical(f"Error loading config: {e}")
         raise

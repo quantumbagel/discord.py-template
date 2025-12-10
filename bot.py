@@ -79,7 +79,9 @@ if is_there_logging_config and configuration.logging.output_folder:
     fh.setFormatter(FileFormatter())
     root_logger.handlers.append(fh)
 
-log = logging.getLogger("template")  # Base logger
+qualified_bot_name = configuration.bot.short_name if configuration.bot.short_name else "template"
+
+log = logging.getLogger(qualified_bot_name)  # Base logger
 startup_logger = log.getChild("startup")
 
 startup_logger.info(f"This is quantumbagel's discord.py bot template!")  # credit yey
@@ -93,11 +95,11 @@ class BotTemplate(commands.Bot):
     def __init__(self, config):
         # All intents because cool
         intents = discord.Intents.all()
-        self._logger = logging.getLogger("template.bot")
+        self._logger = logging.getLogger(f"{qualified_bot_name}.bot")
         self._has_logged_in = False
         self.configuration: box.Box = config
         super().__init__(
-            command_prefix="!",
+            command_prefix="a!",
             intents=intents,
             owner_ids=set(),
             activity=None,
@@ -110,53 +112,19 @@ class BotTemplate(commands.Bot):
         This hook is called when the bot is first setting up.
         It's the perfect place to load your cogs.
         """
+        # THIS LINE IS REQUIRED TO CATCH SLASH COMMAND ERRORS
+        self.tree.on_error = self.on_app_command_error
+
+        # Initialize Database
+        # Pass the list of modules where you define your models here.
+        # Example: await database.init_database(["cogs.my_cog.models"])
+        # This is here because it contains external imports that will not be loaded at runtime
+        import utilities.database as database
+        await database.init_database([])
+
         self._logger.info("Now loading cogs")
 
-        if configuration.cogs is None:
-            self._logger.warning("No cogs found in config."
-                                 "Unless you have drastically modified other components of this code, "
-                                 "your bot will not do anything.")
-            return
-
-        cogs_list = configuration.cogs
-
-        # Check if 'cogs' is a list (BoxList)
-        if not isinstance(cogs_list, BoxList):
-            self._logger.error(f"Cog validation error: 'cogs' must be a list. Found: {type(cogs_list)}")
-            return
-
-        for i, item in enumerate(cogs_list):
-            #  Check if item is a dictionary (Box)
-            if not isinstance(item, Box):
-                self._logger.error(f"Cog validation error: Item {i} in 'cogs' is not a dictionary. Found: {type(item)}")
-                return
-
-            # Check if item has exactly one key
-            if len(item) != 1:
-                self._logger.error(f"Cog validation error: Item {i} in 'cogs' must have exactly one key. Found: {list(item.keys())}")
-                return
-
-            # Get the inner config
-            cog_name = list(item.keys())[0]
-            cog_config = item[cog_name]
-
-            if not isinstance(cog_config, Box):
-                self._logger.error(
-                    f"Cog validation error: Config for '{cog_name}' (item {i}) is not a dictionary. Found: {type(cog_config)}")
-                return
-
-            # Check for 'class' key and its type
-            if 'class' not in cog_config or not isinstance(cog_config['class'], str):
-                self._logger.error(
-                    f"Cog validation error: Config for '{cog_name}' (item {i}) must have a 'class' key with a string value.")
-                return
-
-            #  Check for 'enabled' key and its type
-            if 'enabled' not in cog_config or not isinstance(cog_config.enabled, bool):
-                self._logger.error(
-                    f"Cog validation error: Config for '{cog_name}' (item {i}) must have an 'enabled' key with a boolean value.")
-                return
-
+        # Pydantic validation ensures 'cogs' is a list of dicts, so we can skip manual checks.
 
         for cog_info in configuration.cogs:
             cog_info = dict(cog_info)
@@ -188,6 +156,14 @@ class BotTemplate(commands.Bot):
                 self._logger.warning(f"Failed to load cog '{cog_module}.{cog_classname}': "
                                      f"A cog with this name is already loaded!")
 
+    async def close(self):
+        """
+        Called when the bot is shutting down.
+        """
+        import utilities.database as database
+        await database.close_database()
+        await super().close()
+
     async def on_ready(self):
         """Event that fires when the bot is fully logged in and ready."""
         self._logger.info(f"Logged in as {self.user!r}")
@@ -199,7 +175,8 @@ class BotTemplate(commands.Bot):
         if not self.owner_ids and not self.owner_id:
             manually_set = False
             # This is a hack that will populate either self.owner_id or self.owner_ids
-            # depending on the number of owners from the application portal
+            # depending on the number of owners from the application portal.
+            # This is because is_owner must request the list of owners from Discord.
             await self.is_owner(discord.Object(id=1234))
 
         def stringify_user(user_id):
@@ -218,6 +195,77 @@ class BotTemplate(commands.Bot):
             self._logger.error("This bot has no owner. This should not happen and will break all owner-only commands.")
 
         self._logger.info("Bot is ready and online!")
+
+    async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        """Global error handler for App Commands (Slash Commands)."""
+        
+        # Unwrap the error if it's an invoke error to get the original exception
+        if isinstance(error, app_commands.CommandInvokeError):
+            error = error.original
+
+        # Handle Cooldowns
+        if isinstance(error, app_commands.CommandOnCooldown):
+            await interaction.response.send_message(
+                embed=warning_embed(
+                    "Command on Cooldown",
+                    f"This command is on cooldown. Please try again in `{error.retry_after:.2f}` seconds."
+                ),
+                ephemeral=True,
+                delete_after=10
+            )
+            return
+
+        # Handle Permissions
+        elif isinstance(error, app_commands.MissingPermissions):
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "Permission Denied",
+                    f"You do not have the required permissions to run this command."
+                ),
+                ephemeral=True
+            )
+            return
+            
+        elif isinstance(error, app_commands.CheckFailure):
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "Permission Denied",
+                    "You do not have the required permissions to run this command."
+                ),
+                ephemeral=True
+            )
+            return
+
+        # Handle Unexpected Errors
+        log.error(f"App Command Error: {error} in command '{interaction.command.name if interaction.command else 'Unknown'}'")
+        
+        exc_type = type(error)
+        exc_type_name = exc_type.__name__
+        tb = error.__traceback__
+
+        if configuration.logging.output_folder:
+            command_name = interaction.command.name if interaction.command else 'Unknown'
+            error_saved_to = create_detailed_error_log(
+                configuration.logging.output_folder, command_name, exc_type, error, tb
+            )
+            log.info(f"Traceback saved to {error_saved_to!r}")
+            msg_content = (f"An unexpected error occurred: `{exc_type_name}`.\n"
+                           f"The details have been logged.\n"
+                           f"**Log File:** `{error_saved_to}`")
+        else:
+            log.warning("Logging to file disabled. Printing traceback to console.")
+            traceback.print_exception(exc_type, error, tb)
+            msg_content = f"An unexpected error occurred: `{exc_type_name}`.\nPlease contact the bot owner."
+
+        msg_embed = error_embed("Command Error", msg_content)
+
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(embed=msg_embed, ephemeral=True)
+            else:
+                await interaction.response.send_message(embed=msg_embed, ephemeral=True)
+        except Exception as e:
+            log.error(f"Failed to send error message to user: {e}")
 
     async def on_command_error(self, ctx, error):
         # REFACTOR: Use helpers.send and embeds for all user-facing errors.

@@ -72,8 +72,10 @@ def create_detailed_error_log(log_dir, command_name, exc_type, exc_value, tb):
             f.write(variable_state_str)
 
         logger.error(f"Uncaught exception. Detailed log saved to: {log_file}")
+        return log_file
 
     except Exception as e:
         logger.warning(f"Error writing to log file: {e}")
         logger.warning(f"Original traceback:\n{traceback_str}")
         logger.warning(f"Variable state:\n{variable_state_str}")
+        return None
