@@ -114,7 +114,7 @@ class BotTemplate(commands.Bot):
     async def _initialize_database(self):
         """Initializes the database."""
         import utilities.database as database
-        await database.init_database([])
+        await database.init_database(["cogs.emoticon.models"])
 
     async def _load_cogs(self):
         """Loads all cogs from the configuration."""
