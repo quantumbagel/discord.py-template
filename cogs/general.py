@@ -48,9 +48,20 @@ class General(ImprovedCog):
             await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
             return
 
-        # Use the helper function from utilities.embeds
-        embed = server_info_embed(interaction.guild)
-        await interaction.response.send_message(embed=embed)
+        guild = interaction.guild
+        embed_builder = custom_embed() \
+            .set_title(f"Server Information: {guild.name}") \
+            .set_timestamp() \
+            .add_field(name="Owner", value=str(guild.owner), inline=True) \
+            .add_field(name="Members", value=str(guild.member_count), inline=True) \
+            .add_field(name="Created", value=f"<t:{int(guild.created_at.timestamp())}:F>", inline=False) \
+            .add_field(name="Boost Level", value=str(guild.premium_tier), inline=True) \
+            .add_field(name="Boost Count", value=str(guild.premium_subscription_count), inline=True)
+
+        if guild.icon:
+            embed_builder.set_thumbnail(guild.icon.url)
+
+        await interaction.response.send_message(embed=embed_builder.build())
 
     @app_commands.command(name="avatar", description="Get a user's avatar.")
     @app_commands.describe(user="The user to get the avatar for.")

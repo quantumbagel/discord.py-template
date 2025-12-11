@@ -34,36 +34,46 @@ def create_detailed_error_log(log_dir, command_name, exc_type, exc_value, tb):
             f"\n--- Frame: {func_name} in {filename} at line {line_no} ---\n"
         )
 
-        # Pretty-print all local variables, expanding objects one level
-        try:
-            expanded_locals = {}
-            for var_name, var_value in frame.f_locals.items():
+        # Function to format variables, expanding objects one level
+        def format_vars(var_dict):
+            formatted_vars = {}
+            for var_name, var_value in var_dict.items():
+                # Avoid logging sensitive data
 
-                # Check for a default, unhelpful repr string
                 repr_str = repr(var_value)
                 is_default_object = repr_str.startswith('<') and 'object at 0x' in repr_str
 
-                # If it's an object and has a __dict__, expand it
                 if is_default_object and hasattr(var_value, '__dict__'):
-                    expanded_locals[var_name] = {
+                    formatted_vars[var_name] = {
                         '__type__': str(type(var_value)),
-                        '__dict__': var_value.__dict__
+                        '__dict__': {k: (v if not any(keyword in k.lower() for keyword in ['token', 'password', 'secret']) else "********") for k, v in var_value.__dict__.items()}
                     }
                 else:
-                    # It's a simple type (int, str) or has a good repr
-                    expanded_locals[var_name] = var_value  # Use the original value
+                    formatted_vars[var_name] = var_value
+            return formatted_vars
 
-            # Now, pprint the *new* dictionary
-            variable_state_str += pprint.pformat(expanded_locals, indent=2, width=120)
-
+        # Pretty-print locals
+        try:
+            variable_state_str += "\n--- Locals ---\n"
+            formatted_locals = format_vars(frame.f_locals)
+            variable_state_str += pprint.pformat(formatted_locals, indent=2, width=120)
         except Exception as e:
             variable_state_str += f"  [Could not format locals: {e}]\n"
+
+        # Pretty-print globals
+        try:
+            variable_state_str += "\n\n--- Globals ---\n"
+            formatted_globals = format_vars(frame.f_globals)
+            variable_state_str += pprint.pformat(formatted_globals, indent=2, width=120)
+        except Exception as e:
+            variable_state_str += f"  [Could not format globals: {e}]\n"
+
         variable_state_str += "\n"
 
         # Move to the next frame up the stack
         current_tb = current_tb.tb_next
 
-    # 5. Write everything to the log file
+    # Write everything to the log file
     try:
         with open(log_file, "w") as f:
             f.write("--- UNCAUGHT EXCEPTION LOG ---\n\n")

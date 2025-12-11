@@ -22,7 +22,7 @@ class ConsoleFormatter(logging.Formatter):
         logging.CRITICAL: bold_red + format + reset
     }
 
-    def format(self, record):
+    def format(self, record: logging.LogRecord) -> str:
         log_fmt = self.FORMATS.get(record.levelno)
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
@@ -36,6 +36,6 @@ class FileFormatter(logging.Formatter):
     """
     fmt = "%(asctime)s - %(name)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
 
-    def format(self, record):
+    def format(self, record: logging.LogRecord) -> str:
         formatter = logging.Formatter(self.fmt)
         return formatter.format(record)

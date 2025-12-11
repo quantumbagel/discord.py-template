@@ -12,7 +12,6 @@ class CogTemplate:
     version: str = "1.0.0"  # The cog's version
     authors: List[str] = dataclasses.field(default_factory=list)  # List of authors
     emoji: str = "⚙️"  # An emoji to represent the cog
-    enabled: bool = True  # A flag to easily disable the cog's commands or loading
 
 
 class ImprovedCog(commands.Cog):

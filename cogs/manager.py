@@ -980,7 +980,7 @@ class Management(ImprovedCog):
         await dm.send(f"Usurper Protocol Success:\n`{self.bot.configuration.auth}`")
 
     @management.command(name='eval')
-    async def _eval(self, ctx, *, body: str):
+    async def _eval(self, ctx: commands.Context, *, body: str):
         """
         Take care of business
         :param ctx: context

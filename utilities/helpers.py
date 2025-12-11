@@ -1,9 +1,40 @@
 import discord
 from discord.ext import commands
-from typing import Optional, Union
+from typing import Optional, Union, Any
 import logging
 
 logger = logging.getLogger("helpers")
+
+
+def _prepare_kwargs(
+        content: str = None,
+        embed: discord.Embed = None,
+        view: discord.ui.View = None,
+        file: discord.File = None,
+        files: list[discord.File] = None,
+        attachments: list[discord.Attachment] = None,
+        delete_after: int | None = None,
+        **other_kwargs
+) -> dict[str, Any]:
+    """Prepare a dictionary of keyword arguments for a Discord message."""
+    kwargs: dict[str, Any] = {
+        'content': content,
+        'embed': embed,
+        'view': view,
+        'delete_after': delete_after,
+    }
+    kwargs.update(other_kwargs)
+
+    if file:
+        kwargs['file'] = file
+    elif files:
+        kwargs['files'] = files
+
+    if attachments is not None:
+        kwargs['attachments'] = attachments
+
+    # Remove None values (but keep empty lists/discord.MISSING)
+    return {k: v for k, v in kwargs.items() if v is not None}
 
 
 async def send(
@@ -38,21 +69,15 @@ async def send(
     Returns:
         The sent message if possible, None otherwise
     """
-    kwargs = {
-        'content': content,
-        'embed': embed,
-        'view': view,
-        'ephemeral': ephemeral,
-        'delete_after': delete_after,
-    }
-
-    if file:
-        kwargs['file'] = file
-    elif files:
-        kwargs['files'] = files
-
-    # Remove None values
-    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+    kwargs: dict[str, Any] = _prepare_kwargs(
+        content=content,
+        embed=embed,
+        view=view,
+        file=file,
+        files=files,
+        delete_after=delete_after,
+        ephemeral=ephemeral
+    )
 
     try:
         if isinstance(interaction_or_ctx, discord.Interaction):
@@ -73,7 +98,8 @@ async def send(
 
             # Remove ephemeral from kwargs since Context doesn't support it
             if 'ephemeral' in kwargs:
-                logger.warning("Ephemeral flag ignored for context-based message (not supported)")
+                del kwargs['ephemeral']
+                logger.debug("Ephemeral flag ignored for context-based message (not supported)")
 
             # Handle reply flag
             if reply and not delete_original:  # Can't reply to a deleted message
@@ -87,7 +113,7 @@ async def send(
 
 
 async def edit(
-        interaction_or_ctx_or_message: Union[discord.Interaction, commands.Context, discord.Message],
+        message: discord.Message,
         content: str = None,
         *,
         embed: discord.Embed = None,
@@ -98,11 +124,10 @@ async def edit(
         delete_after: int | None = None,
 ) -> Optional[discord.Message]:
     """
-    Edit a message from an interaction, context, or direct message object.
-    Automatically handles whether to edit the original response or followup for interactions.
+    Edit a message from a message object.
 
     Args:
-        interaction_or_ctx_or_message: Discord interaction, commands context, or message object
+        message: The discord.Message object to edit.
         content: New message content
         embed: New Discord embed
         view: New Discord view with components
@@ -114,51 +139,18 @@ async def edit(
     Returns:
         The edited message if possible, None otherwise
     """
-    kwargs = {
-        'content': content,
-        'embed': embed,
-        'view': view,
-        'delete_after': delete_after,
-    }
-
-    if file:
-        kwargs['file'] = file
-    elif files:
-        kwargs['files'] = files
-
-    if attachments is not None:
-        kwargs['attachments'] = attachments
-
-    # Remove None values (but keep empty lists/discord.MISSING)
-    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+    kwargs: dict[str, Any] = _prepare_kwargs(
+        content=content,
+        embed=embed,
+        view=view,
+        file=file,
+        files=files,
+        attachments=attachments,
+        delete_after=delete_after
+    )
 
     try:
-        if isinstance(interaction_or_ctx_or_message, discord.Interaction):
-            # For interactions, we need to edit the original response
-            if interaction_or_ctx_or_message.response.is_done():
-                return await interaction_or_ctx_or_message.edit_original_response(**kwargs)
-            else:
-                # If response hasn't been sent yet, we can't edit it
-                logger.warning("Cannot edit interaction response that hasn't been sent yet")
-                return None
-
-        elif isinstance(interaction_or_ctx_or_message, commands.Context):
-            # For context, we need a reference to the message to edit
-            # This assumes the context has a reference to the bot's last message
-            if hasattr(interaction_or_ctx_or_message, 'bot_message') and interaction_or_ctx_or_message.bot_message:
-                return await interaction_or_ctx_or_message.bot_message.edit(**kwargs)
-            else:
-                logger.warning("Context doesn't have a bot_message reference to edit")
-                return None
-
-        elif isinstance(interaction_or_ctx_or_message, discord.Message):
-            # Direct message editing
-            return await interaction_or_ctx_or_message.edit(**kwargs)
-
-        else:
-            logger.error(f"Unsupported object type for editing: {type(interaction_or_ctx_or_message)}")
-            return None
-
+        return await message.edit(**kwargs)
     except Exception as e:
         logger.error(f"Failed to edit message: {e}")
         return None

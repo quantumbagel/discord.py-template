@@ -314,13 +314,6 @@ def command_help_embed(command_name: str, description: str, usage: str = None,
     """Quick function to create a command help embed."""
     return CommandHelpEmbed(command_name, description, usage, aliases, config, **kwargs).build()
 
-def user_info_embed(user: discord.Member, config=None, **kwargs) -> discord.Embed:
-    """Quick function to create a user info embed."""
-    return UserInfoEmbed(user, config, **kwargs).build()
-
-def server_info_embed(guild: discord.Guild, config=None, **kwargs) -> discord.Embed:
-    """Quick function to create a server info embed."""
-    return ServerInfoEmbed(guild, config, **kwargs).build()
 
 def custom_embed(config=None) -> CustomEmbed:
     """Create a new custom embed instance."""
