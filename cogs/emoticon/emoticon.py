@@ -152,6 +152,7 @@ class Emoticon(ImprovedCog):
         super().__init__(bot, logger)
         self._scan_lock = asyncio.Lock()
         self._scan_semaphore = asyncio.Semaphore(5)  # Rate limiting
+        self._scan_cancel_flag: dict[int, bool] = {}  # guild_id -> cancel flag
 
     async def cog_load(self):
         """Called when the cog is loaded."""
@@ -439,7 +440,7 @@ class Emoticon(ImprovedCog):
 
     # ==================== Scan Commands ====================
 
-    @emoticon_group.command(name="scan", description="Scan channel history for emoji usage.")
+    @emoticon_group.command(name="scan", description="Scan channel history for emoji usage. Shows status if scan is running.")
     @app_commands.describe(
         scope="What to scan",
         sync_mode="How to handle existing data",
@@ -453,18 +454,30 @@ class Emoticon(ImprovedCog):
         sync_mode: Literal["append", "rescan"] = "append",
         dry_run: bool = False
     ):
-        """Initiate background indexing of emoji usage."""
-        if self._scan_lock.locked():
-            await interaction.response.send_message(
-                embed=error_embed("Scan in Progress", "A scan is already running. Please wait."),
-                ephemeral=True
-            )
-            return
+        """Initiate background indexing of emoji usage. Shows status if scan is already running."""
+        # If scan is running, show status instead
+        if self._scan_lock.locked() and interaction.guild.id in self._scan_cancel_flag:
+            progress = await ScanProgress.get_or_none(guild_id=interaction.guild.id)
+            if progress and progress.status == "scanning":
+                pct = (progress.scanned_channels / progress.total_channels * 100) if progress.total_channels > 0 else 0
+                embed = custom_embed() \
+                    .set_title("📊 Scan in Progress") \
+                    .set_description(f"Progress: **{pct:.1f}%**\n\nUse `/emoticon stop` to cancel the scan.") \
+                    .add_field("Channels", f"{progress.scanned_channels}/{progress.total_channels}", inline=True) \
+                    .add_field("Messages", f"{progress.scanned_messages:,}", inline=True) \
+                    .add_field("Emojis Found", f"{progress.emojis_found:,}", inline=True) \
+                    .set_timestamp()
+
+                await interaction.response.send_message(embed=embed.build(), ephemeral=True)
+                return
 
         await interaction.response.send_message(
             embed=loading_embed("Starting Scan", "Preparing to scan channels..."),
             ephemeral=True
         )
+
+        # Initialize cancel flag for this guild
+        self._scan_cancel_flag[interaction.guild.id] = False
 
         async with self._scan_lock:
             config = await self._get_config(interaction.guild.id)
@@ -496,8 +509,49 @@ class Emoticon(ImprovedCog):
 
             extractor = EmojiExtractor(interaction.guild)
 
+            # Track last update time for progress updates
+            last_update_time = datetime.now(timezone.utc)
+            update_interval = 5  # seconds
+
+            async def update_progress_message():
+                """Helper to update the progress message."""
+                nonlocal last_update_time
+                now = datetime.now(timezone.utc)
+                if (now - last_update_time).total_seconds() >= update_interval:
+                    last_update_time = now
+                    pct = (progress.scanned_channels / progress.total_channels * 100) if progress.total_channels > 0 else 0
+
+                    progress_embed = custom_embed() \
+                        .set_title("📊 Scanning in Progress...") \
+                        .set_description(f"Progress: **{pct:.1f}%**\n\nUse `/emoticon stop` to cancel.") \
+                        .add_field("Channels", f"{progress.scanned_channels}/{progress.total_channels}", inline=True) \
+                        .add_field("Messages", f"{progress.scanned_messages:,}", inline=True) \
+                        .add_field("Emojis Found", f"{progress.emojis_found:,}", inline=True) \
+                        .set_timestamp()
+
+                    try:
+                        await interaction.edit_original_response(embed=progress_embed.build())
+                    except discord.HTTPException:
+                        pass  # Ignore edit failures
+
             try:
                 for channel in channels:
+                    # Check for cancellation
+                    if self._scan_cancel_flag.get(interaction.guild.id, False):
+                        progress.status = "cancelled"
+                        progress.completed_at = datetime.now(timezone.utc)
+                        await progress.save()
+
+                        await interaction.edit_original_response(
+                            embed=warning_embed(
+                                "⏹️ Scan Cancelled",
+                                f"**Channels scanned:** {progress.scanned_channels}/{progress.total_channels}\n"
+                                f"**Messages processed:** {progress.scanned_messages:,}\n"
+                                f"**Emojis found:** {progress.emojis_found:,}"
+                            )
+                        )
+                        return
+
                     async with self._scan_semaphore:
                         try:
                             # Get last scanned message ID for append mode
@@ -509,6 +563,10 @@ class Emoticon(ImprovedCog):
                                     pass
 
                             async for message in channel.history(limit=None, after=after_message):
+                                # Check for cancellation
+                                if self._scan_cancel_flag.get(interaction.guild.id, False):
+                                    break
+
                                 if message.author.bot:
                                     continue
 
@@ -531,23 +589,37 @@ class Emoticon(ImprovedCog):
                                                 message_timestamp=message.created_at
                                             )
 
-                                # Also scan reactions
+                                # Also scan reactions - iterate through users who reacted
                                 for reaction in message.reactions:
                                     emoji = extractor.extract_from_reaction(reaction)
-                                    if await self._should_track_emoji(emoji, config):
-                                        progress.emojis_found += reaction.count
+                                    emoji.count = 1  # Each user's reaction counts as 1
 
+                                    if await self._should_track_emoji(emoji, config):
                                         if not dry_run:
-                                            # Record bulk reaction (simplified - doesn't track individual users)
-                                            await self._record_emoji_usage(
-                                                guild_id=interaction.guild.id,
-                                                channel_id=channel.id,
-                                                user_id=0,  # Unknown users
-                                                message_id=message.id,
-                                                emoji=emoji,
-                                                is_reaction=True,
-                                                message_timestamp=message.created_at
-                                            )
+                                            # Iterate through users who added this reaction
+                                            try:
+                                                async for user in reaction.users():
+                                                    if user.bot:
+                                                        continue
+                                                    progress.emojis_found += 1
+                                                    await self._record_emoji_usage(
+                                                        guild_id=interaction.guild.id,
+                                                        channel_id=channel.id,
+                                                        user_id=user.id,
+                                                        message_id=message.id,
+                                                        emoji=emoji,
+                                                        is_reaction=True,
+                                                        message_timestamp=message.created_at
+                                                    )
+                                            except discord.Forbidden:
+                                                # Can't access reaction users, skip
+                                                pass
+                                        else:
+                                            # Dry run - just count
+                                            progress.emojis_found += reaction.count
+
+                                # Update progress message periodically
+                                await update_progress_message()
 
                                 # Rate limiting
                                 await asyncio.sleep(0.01)
@@ -555,9 +627,28 @@ class Emoticon(ImprovedCog):
                             progress.scanned_channels += 1
                             await progress.save()
 
+                            # Update after each channel completes
+                            await update_progress_message()
+
                         except discord.Forbidden:
                             self.logger.warning(f"No access to channel {channel.name}")
                             continue
+
+                # Check if cancelled during final channel
+                if self._scan_cancel_flag.get(interaction.guild.id, False):
+                    progress.status = "cancelled"
+                    progress.completed_at = datetime.now(timezone.utc)
+                    await progress.save()
+
+                    await interaction.edit_original_response(
+                        embed=warning_embed(
+                            "⏹️ Scan Cancelled",
+                            f"**Channels scanned:** {progress.scanned_channels}/{progress.total_channels}\n"
+                            f"**Messages processed:** {progress.scanned_messages:,}\n"
+                            f"**Emojis found:** {progress.emojis_found:,}"
+                        )
+                    )
+                    return
 
                 progress.status = "completed"
                 progress.completed_at = datetime.now(timezone.utc)
@@ -569,15 +660,14 @@ class Emoticon(ImprovedCog):
                     await config.save()
 
                 # Send completion message
-                result_type = "Dry Run Complete" if dry_run else "Scan Complete"
-                await interaction.edit_original_response(
-                    embed=success_embed(
-                        result_type,
-                        f"**Channels scanned:** {progress.scanned_channels}\n"
-                        f"**Messages processed:** {progress.scanned_messages:,}\n"
-                        f"**Emojis found:** {progress.emojis_found:,}"
-                    )
+                result_type = "✅ Dry Run Complete" if dry_run else "✅ Scan Complete"
+                completion_embed = success_embed(
+                    result_type,
+                    f"**Channels scanned:** {progress.scanned_channels}/{progress.total_channels}\n"
+                    f"**Messages processed:** {progress.scanned_messages:,}\n"
+                    f"**Emojis found:** {progress.emojis_found:,}"
                 )
+                await interaction.edit_original_response(embed=completion_embed)
 
             except Exception as e:
                 progress.status = "failed"
@@ -588,6 +678,28 @@ class Emoticon(ImprovedCog):
                 await interaction.edit_original_response(
                     embed=error_embed("Scan Failed", f"An error occurred: {str(e)[:200]}")
                 )
+            finally:
+                # Clean up cancel flag
+                self._scan_cancel_flag.pop(interaction.guild.id, None)
+
+    @emoticon_group.command(name="stop", description="Stop the currently running scan.")
+    @app_commands.default_permissions(manage_guild=True)
+    async def stop_scan(self, interaction: discord.Interaction):
+        """Stop a running scan."""
+        if not self._scan_lock.locked() or interaction.guild.id not in self._scan_cancel_flag:
+            await interaction.response.send_message(
+                embed=info_embed("No Active Scan", "There is no scan currently running to stop."),
+                ephemeral=True
+            )
+            return
+
+        # Set cancel flag
+        self._scan_cancel_flag[interaction.guild.id] = True
+
+        await interaction.response.send_message(
+            embed=warning_embed("Stopping Scan", "The scan will stop after the current operation completes..."),
+            ephemeral=True
+        )
 
     @emoticon_group.command(name="status", description="Check the status of an ongoing scan.")
     async def scan_status(self, interaction: discord.Interaction):
